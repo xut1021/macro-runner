@@ -1,0 +1,31 @@
+{
+  "name": "macro-runner",
+  "version": "0.1.0",
+  "description": "Macro Runner MCP Server — batch multi-step tool sequences below the model boundary to reduce LLM round trips and token consumption",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "macro-runner": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "mcp",
+    "macro",
+    "batch",
+    "token-savings",
+    "claude-code",
+    "agent"
+  ],
+  "author": "xut1021",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xut1021/macro-runner.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
