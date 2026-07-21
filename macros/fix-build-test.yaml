@@ -1,0 +1,46 @@
+# fix-build-test
+# Standard bug-fix verification workflow: edit a file, build, run tests.
+name: fix-build-test
+description: >
+  Edit a file to fix a bug, then build and run tests to verify.
+  The standard bug-fix loop in a single macro.
+
+parameters:
+  file_path:
+    description: Path to the file to edit
+    required: true
+  old_code:
+    description: Exact code to replace
+    required: true
+  new_code:
+    description: Replacement code
+    required: true
+  build_command:
+    description: Build command
+    default: npm run build
+  test_command:
+    description: Test command
+    default: npm test
+  build_timeout:
+    description: Build timeout in ms
+    default: 120000
+  test_timeout:
+    description: Test timeout in ms
+    default: 120000
+
+steps:
+  - type: edit
+    description: Apply bug fix to {{file_path}}
+    path: "{{file_path}}"
+    old_str: "{{old_code}}"
+    new_str: "{{new_code}}"
+
+  - type: shell
+    description: Build to verify compilation
+    command: "{{build_command}}"
+    timeout_ms: "{{build_timeout}}"
+
+  - type: shell
+    description: Run tests to verify correctness
+    command: "{{test_command}}"
+    timeout_ms: "{{test_timeout}}"
