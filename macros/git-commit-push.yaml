@@ -1,0 +1,35 @@
+# git-commit-push
+# Standard git workflow: stage changes, commit, and push.
+name: git-commit-push
+description: >
+  Stage all changes, commit with a message, and push to remote.
+  Standard git workflow in a single macro.
+
+parameters:
+  message:
+    description: Commit message
+    required: true
+  branch:
+    description: Target branch (pushes to this branch)
+    default: ""
+
+steps:
+  - type: shell
+    description: Stage all changes
+    command: git add -A
+
+  - type: shell
+    description: Commit changes
+    command: git commit -m "{{message}}"
+
+  - type: conditional
+    description: Push if branch specified
+    condition: "{{branch}} != "
+    then:
+      - type: shell
+        description: Push to remote branch
+        command: git push origin {{branch}}
+    else:
+      - type: shell
+        description: Push to current branch
+        command: git push

@@ -1,0 +1,33 @@
+# install-and-verify
+# Install a package and verify it was added correctly.
+name: install-and-verify
+description: >
+  Install an npm package and verify the installation by checking
+  package.json and running a quick import check.
+
+parameters:
+  package_name:
+    description: Name of the npm package to install
+    required: true
+  install_flags:
+    description: Extra flags for npm install
+    default: --save
+  verify_command:
+    description: Quick verification command
+    default: node -e "require('{{package_name}}'); console.log('{{package_name}} loaded successfully')"
+
+steps:
+  - type: shell
+    description: Install {{package_name}}
+    command: npm install {{package_name}} {{install_flags}}
+    timeout_ms: 120000
+
+  - type: read
+    description: Verify package.json was updated
+    path: package.json
+    limit: 500
+
+  - type: shell
+    description: Quick import verification
+    command: "{{verify_command}}"
+    timeout_ms: 30000
