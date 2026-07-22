@@ -828,6 +828,100 @@ test('getStats has categorized fields', () => {
 });
 
 // ================================================================
+// v0.1.7: Runtime command re-audit
+// ================================================================
+console.log('\n📦 42. Runtime command re-audit (v0.1.7 P0)');
+// Dynamic command via variable should be re-audited
+writeFileSync(fa, ECHO, 'utf8');
+const rDynamicSafe = runMacro([
+  { type: 'read', path: fa, assign_to: 'cmd' },
+  { type: 'shell', command: '${{cmd}}', description: 'Dynamic safe command' },
+]);
+test('dynamic safe command runs', () => {
+  assert(rDynamicSafe.status === 'completed',
+    `Expected completed, got ${rDynamicSafe.status}: ${JSON.stringify(rDynamicSafe.steps?.map(s => s.error))}`);
+});
+
+// Dynamic dangerous command should be blocked at runtime
+writeFileSync(fa, 'rm -rf / --no-preserve-root', 'utf8');
+const rDynamicDanger = runMacro([
+  { type: 'read', path: fa, assign_to: 'cmd' },
+  { type: 'shell', command: '${{cmd}}', description: 'Dynamic dangerous' },
+]);
+test('dynamic dangerous command blocked', () => {
+  assert(rDynamicDanger.steps[1].approval_required === true,
+    `Dynamic rm -rf should be blocked, got: ${JSON.stringify(rDynamicDanger.steps[1])}`);
+});
+
+// Static command should NOT be re-audited (already passed pre-audit)
+const rStatic = runMacro([
+  { type: 'shell', command: ECHO, description: 'Static safe' },
+]);
+test('static command not re-audited', () => {
+  assert(rStatic.status === 'completed', `Got ${rStatic.status}`);
+});
+
+// Restore file for later tests
+writeFileSync(fa, 'original A', 'utf8');
+
+// ================================================================
+// v0.1.7: Validator field types
+// ================================================================
+console.log('\n📦 43. Validator field types (v0.1.7 P1)');
+test('command must be string', () => {
+  const v = validateMacro([{ type: 'shell', command: 123 }]);
+  assert(!v.valid, `Should reject number command, got valid=${v.valid}`);
+});
+test('content must be string', () => {
+  const v = validateMacro([{ type: 'write', path: 'a.txt', content: {} }]);
+  assert(!v.valid, `Should reject object content, got valid=${v.valid}`);
+});
+test('condition must be string', () => {
+  const v = validateMacro([{ type: 'conditional', condition: true, then: [{ type: 'shell', command: 'x' }] }]);
+  assert(!v.valid, `Should reject boolean condition, got valid=${v.valid}`);
+});
+test('env must be object', () => {
+  const v = validateMacro([{ type: 'shell', command: 'x', env: 'not-object' }]);
+  assert(!v.valid, `Should reject string env, got valid=${v.valid}`);
+});
+
+// ================================================================
+// v0.1.7: Execution path tracking
+// ================================================================
+console.log('\n📦 44. Execution path tracking (v0.1.7 P1)');
+const rPath = runMacro([
+  { type: 'shell', command: ECHO, description: 'Top-level' },
+  { type: 'conditional', condition: '1 == 1', description: 'Branch',
+    then: [
+      { type: 'shell', command: ECHO, description: 'In branch' },
+    ],
+  },
+]);
+test('top-level has execution path', () => {
+  assert(rPath.steps[0]._execution_path === 'steps[0]',
+    `Expected steps[0], got ${rPath.steps[0]._execution_path}`);
+});
+test('branch step has nested path', () => {
+  const br = rPath.steps[1].branch_results[0];
+  assert(br._execution_path && br._execution_path.includes('.then['),
+    `Expected nested path, got ${br._execution_path}`);
+});
+
+// ================================================================
+// v0.1.7: Token estimate split (observed vs potential)
+// ================================================================
+console.log('\n📦 45. Token estimate split (v0.1.7 P1)');
+const rEst = runMacro([
+  { type: 'shell', command: ECHO, description: 'Only step' },
+]);
+test('has potential_tokens_saved', () => {
+  assert(typeof rEst.token_savings_estimate.potential_tokens_saved === 'number');
+});
+test('observed <= potential', () => {
+  assert(rEst.token_savings_estimate.tokens_saved <= rEst.token_savings_estimate.potential_tokens_saved);
+});
+
+// ================================================================
 console.log(`\n${'='.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

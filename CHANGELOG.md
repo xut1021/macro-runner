@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.1.7 — Security Boundary & Audit Completeness (2026-07-23)
+
+### P0 Fixes
+- **Runtime command re-audit**: Shell commands are re-audited AFTER variable substitution.
+  Dynamic commands (e.g. `${{cmd}}` reading from a file) bypass the static pre-audit,
+  so `checkCommand()` is called on the resolved command before execution. Commands
+  that differ from their original static form must pass a second audit.
+- **internal_error status**: Unexpected exceptions caught by `try/catch` now set
+  `status: "internal_error"` and `execution_status: "internal_error"`, and expose
+  `fatal_error` in the result. Previously, `status` could incorrectly show
+  `"completed"`.
+
+### P1 Fixes
+- **dry-run categorization fixed**: `logBenchmark` checks `macroResult.dry_run` FIRST,
+  before `status === 'completed'`. Dry-runs no longer miscount as completed.
+- **Token estimate split**: `tokens_saved` is based on actual executed steps (observed).
+  New `potential_tokens_saved` shows declared-step estimate. Round-trip counts also split.
+- **Execution path tracking**: Every result now carries `_execution_path` (e.g.
+  `steps[1].then[0].else[2]`). Summarizer uses stable path instead of guessing from
+  index. Eliminates `steps[undefined].then[0]` in nested conditionals.
+- **Validator field types**: Enforces `command`/`condition`/`content`/`path` as string,
+  `timeout_ms`/`offset`/`limit` as number, `env` as plain object. Catches
+  `{ command: 123 }` before execution.
+- **Read file size limit**: `MACRO_MAX_READ_FILE_BYTES` (default 50 MB) prevents
+  loading huge files into memory via `readFileSync`.
+- **UTF-8 safe truncation**: `Buffer.slice` walks back to valid character boundary,
+  reserves marker bytes in the budget. No more `�` replacement characters.
+
+### Engineering
+- 11 new tests (119 total, 0 failures): runtime re-audit safe/dangerous,
+  validator field types, execution path tracking, token estimate split
+
 ## v0.1.6 — Reliability Hardening (2026-07-23)
 
 ### P0 Fixes
