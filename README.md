@@ -4,7 +4,7 @@
 
 Inspired by [Tura-AI/tura](https://github.com/Tura-AI/tura), Macro Runner brings macro-command batching to Claude Code via MCP (Model Context Protocol).
 
-> **Version 0.1.3 — Semantic & trustworthiness fixes.** Core engine is solid with rollback, dry-run, and safety features. See [CHANGELOG.md](./CHANGELOG.md) and [BENCHMARK.md](./BENCHMARK.md) for details.
+> **Version 0.1.11 — Release Readiness Hardening.** Stable Beta for trusted local development workflows. Not a security sandbox. Core engine features rollback with file identity verification, policy-based command approval, nested execution path tracking, and strict configuration validation. See [CHANGELOG.md](./CHANGELOG.md) and [SECURITY.md](./SECURITY.md) for details.
 
 ## The Problem
 
@@ -191,10 +191,13 @@ A/B benchmarking against real Claude Code usage data is planned for a future rel
 
 ### Recommendations
 
-- Do **not** use with `--dangerously-skip-permissions` or equivalent flags
-- Set `MACRO_WORKSPACE_ROOT` to your project directory when running untrusted macros
-- Review the steps in a macro before running if you did not write them yourself
-- Templates that include `git push` or destructive commands require explicit step inclusion — no template runs destructive commands by default
+- **Stable Beta for trusted local development workflows. Not a security sandbox.**
+- Rollback only handles file operations (`edit`, `write`). Shell side effects (`npm install`, `git push`, database migrations) are NOT reversible.
+- Set `MACRO_WORKSPACE_ROOT` to your project directory when running untrusted macros.
+- Preview new templates with `dry_run: true` before executing.
+- Enable `rollback_on_error: true` for any macro that modifies files.
+- Review the steps in a macro before running if you did not write them yourself.
+- Templates that include `git push` or destructive commands require explicit step inclusion — no template runs destructive commands by default.
 
 ## Comparison with Tura
 
