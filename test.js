@@ -1228,10 +1228,14 @@ console.log('\n📦 63. policy_denied semantics (v0.1.11 P0)');
 const prevMode = process.env.MACRO_DANGEROUS_COMMANDS;
 process.env.MACRO_DANGEROUS_COMMANDS = 'deny';
 const rDeny = runMacro([{ type: 'shell', command: 'rm -rf /' }]);
-test('deny mode → approval_required status (pre-audit)', () => {
-  // Pre-audit blocks before execution; checkCommand returns !approved
-  assert(rDeny.status === 'approval_required' || rDeny.execution_status === 'policy_denied',
-    `Expected approval_required or policy_denied, got ${rDeny.status}`);
+test('deny mode → policy_denied (static pre-audit)', () => {
+  // v0.1.12: deny mode produces policy_denied, NOT approval_required
+  assert(rDeny.status === 'policy_denied',
+    `Expected policy_denied, got ${rDeny.status}`);
+  assert(rDeny.execution_status === 'policy_denied',
+    `Expected policy_denied, got ${rDeny.execution_status}`);
+  assert(rDeny.policy_denied === true, 'policy_denied flag should be true');
+  assert(!rDeny.approval_required, 'approval_required should NOT be set in deny mode');
 });
 
 // approve mode — should get approval_required
@@ -1317,6 +1321,69 @@ test('MACRO_MAX_READ_FILE_BYTES=100MB falls back', () => {
   delete process.env.MACRO_MAX_READ_FILE_BYTES;
   assert(r.status === 'completed', `Should complete with fallback, got ${r.status}`);
 });
+
+// ================================================================
+// v0.1.12: warn mode records security_warnings
+// ================================================================
+console.log('\n📦 67. warn mode records warnings (v0.1.12 P0)');
+const prevMode2 = process.env.MACRO_DANGEROUS_COMMANDS;
+process.env.MACRO_DANGEROUS_COMMANDS = 'warn';
+const rWarnEnv = runMacro([
+  { type: 'shell', command: ECHO, env: { NODE_OPTIONS: '--trace-warnings' }, description: 'Dangerous env in warn' },
+]);
+test('warn: step has security_warnings', () => {
+  assert(rWarnEnv.steps[0].security_warnings && rWarnEnv.steps[0].security_warnings.length > 0,
+    `Expected security_warnings, got: ${JSON.stringify(rWarnEnv.steps[0].security_warnings)}`);
+});
+test('warn: executed_with_warning = true', () => {
+  assert(rWarnEnv.steps[0].executed_with_warning === true,
+    `Expected executed_with_warning=true, got ${rWarnEnv.steps[0]?.executed_with_warning}`);
+});
+test('warn: status still completed', () => {
+  assert(rWarnEnv.status === 'completed', `Expected completed, got ${rWarnEnv.status}`);
+});
+if (prevMode2 === undefined) delete process.env.MACRO_DANGEROUS_COMMANDS;
+else process.env.MACRO_DANGEROUS_COMMANDS = prevMode2;
+
+// ================================================================
+// v0.1.12: Formatter propagates approval_details
+// ================================================================
+console.log('\n📦 68. Formatter approval output (v0.1.12 P1)');
+// Dynamic dangerous command via runtime re-audit
+writeFileSync(fa, 'rm -rf / --no-preserve-root', 'utf8');
+const rFmtApproval = runMacro([
+  { type: 'read', path: fa, assign_to: 'cmd' },
+  { type: 'shell', command: '${{cmd}}', description: 'Dynamic blocked' },
+], { rollback_on_error: true });
+const fmtApproval = formatMacroResult(rFmtApproval, 'summary');
+test('formatted has approval_required', () => {
+  assert(fmtApproval.approval_required === true,
+    `Expected approval_required in formatted, got: ${JSON.stringify(Object.keys(fmtApproval))}`);
+});
+test('formatted has approval_details', () => {
+  assert(fmtApproval.approval_details && fmtApproval.approval_details.risk,
+    `Expected approval_details with risk, got: ${JSON.stringify(fmtApproval.approval_details)}`);
+});
+test('formatted step has risk', () => {
+  const blocked = fmtApproval.steps.find(s => s.approval_required || s.policy_denied);
+  assert(blocked && blocked.risk, `Step should have risk: ${JSON.stringify(blocked)}`);
+});
+writeFileSync(fa, 'original A', 'utf8');
+
+// ================================================================
+// v0.1.12: policy_denied and approval_required are mutually exclusive
+// ================================================================
+console.log('\n📦 69. policy/approval exclusivity (v0.1.12 P0)');
+const prevMode3 = process.env.MACRO_DANGEROUS_COMMANDS;
+process.env.MACRO_DANGEROUS_COMMANDS = 'deny';
+const rExclusive = runMacro([{ type: 'shell', command: 'rm -rf /' }]);
+test('deny: policy_denied=true, approval_required NOT set', () => {
+  assert(rExclusive.policy_denied === true);
+  assert(!rExclusive.approval_required,
+    `approval_required should be false, got ${rExclusive.approval_required}`);
+});
+if (prevMode3 === undefined) delete process.env.MACRO_DANGEROUS_COMMANDS;
+else process.env.MACRO_DANGEROUS_COMMANDS = prevMode3;
 
 // ================================================================
 console.log(`\n${'='.repeat(40)}`);
