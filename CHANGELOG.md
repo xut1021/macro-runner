@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.1.8 — Output Integrity & Defense-in-Depth (2026-07-23)
+
+### P0 Fixes
+- **Dry-run output preserved**: `formatMacroResult` no longer passes preview objects
+  through `formatStepResult`. Dry-run steps retain `action`, `file`, `risk`,
+  `needs_approval`, `then_preview`, `else_preview`. `dry_run_safety` is propagated.
+  Previously, dry-run showed `status: "failure", error: "Unknown error"`.
+- **Full mode preserves stderr**: Shell step formatting in `output_mode: "full"`
+  now returns both `stdout` and `stderr` fields. Previously only stdout was kept;
+  compiler warnings and test diagnostics were silently dropped.
+- **Key-aware secret sanitization**: `sanitizeObject()` now checks key names against
+  `/^(api[_-]?key|token|password|...)$/i`. Values under sensitive keys are redacted
+  even if the value string itself doesn't contain `PASSWORD=`. Protects structured
+  objects (env, config, errors, templates) from credential leaks.
+- **Execution-control env vars blocked**: Shell steps with env overrides that set
+  `NODE_OPTIONS`, `LD_PRELOAD`, `PATH`, `PYTHONPATH`, `GIT_SSH_COMMAND`, or similar
+  execution-control variables are blocked in `deny` mode (`MACRO_DANGEROUS_COMMANDS=deny`).
+- **Special file detection**: `checkRegularFile()` rejects FIFOs, sockets, block/char
+  devices before `readFileSync`/`writeFileSync`. Prevents event-loop blocking on special
+  files that report `size=0` but hang on read.
+- **Edit file size limit**: `MACRO_MAX_EDIT_FILE_BYTES` (default 10 MB) prevents
+  loading oversized files via `executeEdit`.
+
+### P1 Fixes
+- **Single-step macros report zero savings**: When `executedLeafSteps <= 1`, both
+  `tokens_saved` and `round_trips_saved` are forced to 0. No more claiming savings
+  from macros that don't reduce round trips.
+- **Unresolved references fail in ALL fields**: `path`, `command`, `content`, and
+  `message` fields are checked for `UNRESOLVED` sentinel after variable resolution.
+  Previously only `condition` fields were checked; other fields could silently write
+  to `__MACRO_UNRESOLVED__` or run it as a command.
+- **Safe config parsing**: `safeParseInt()` catches NaN from bogus env vars (e.g.
+  `MACRO_MAX_READ_FILE_BYTES=abc`) and falls back to defaults with a console warning.
+  Previously, `NaN` silently disabled size limits (`fileBytes > NaN` is always false).
+
+### Engineering
+- 13 new tests (132 total, 0 failures): dry-run output format, full mode stderr,
+  key-aware sanitization, single-step savings, unresolved command ref, safe config
+
 ## v0.1.7 — Security Boundary & Audit Completeness (2026-07-23)
 
 ### P0 Fixes

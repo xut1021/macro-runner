@@ -922,6 +922,108 @@ test('observed <= potential', () => {
 });
 
 // ================================================================
+// v0.1.8: Dry-run output preserves preview data (not "failure" + "Unknown error")
+// ================================================================
+console.log('\n📦 46. Dry-run formatted output (v0.1.8 P0)');
+const rDryFmt = runMacro([
+  { type: 'shell', command: 'npm test', description: 'Test' },
+], { dry_run: true });
+const dryFmt = formatMacroResult(rDryFmt, 'summary');
+test('dry-run step has action field', () => {
+  assert(typeof dryFmt.steps[0].action === 'string',
+    `Expected action string, got ${JSON.stringify(dryFmt.steps[0])}`);
+});
+test('dry-run step has risk field', () => {
+  assert(typeof dryFmt.steps[0].risk === 'string',
+    `Expected risk string, got: ${JSON.stringify(dryFmt.steps[0])}`);
+});
+test('dry-run has dry_run_safety', () => {
+  assert(dryFmt.dry_run_safety !== undefined,
+    `Expected dry_run_safety, got ${JSON.stringify(Object.keys(dryFmt))}`);
+});
+test('dry-run step is NOT "failure"', () => {
+  assert(dryFmt.steps[0].status !== 'failure',
+    `Dry-run should not have status=failure: ${JSON.stringify(dryFmt.steps[0])}`);
+});
+
+// ================================================================
+// v0.1.8: Full mode preserves stderr
+// ================================================================
+console.log('\n📦 47. Full mode preserves stderr (v0.1.8 P0)');
+const rFull = runMacro([
+  { type: 'shell', command: `"${NODE_BIN}" -e "console.error('warn message'); console.log('ok')"`, description: 'Has stderr' },
+]);
+const fullFmt = formatMacroResult(rFull, 'full');
+test('full mode has stdout', () => {
+  assert(typeof fullFmt.steps[0].stdout === 'string',
+    `Expected stdout string, got ${typeof fullFmt.steps[0]?.stdout}`);
+});
+test('full mode has stderr', () => {
+  assert(typeof fullFmt.steps[0].stderr === 'string',
+    `Expected stderr string, got ${typeof fullFmt.steps[0]?.stderr}`);
+});
+
+// ================================================================
+// v0.1.8: Single-step macros have zero token savings
+// ================================================================
+console.log('\n📦 48. Single-step token savings (v0.1.8 P1)');
+const rSingle = runMacro([
+  { type: 'shell', command: ECHO, description: 'Only step' },
+]);
+test('single step: tokens_saved = 0', () => {
+  assert(rSingle.token_savings_estimate.tokens_saved === 0,
+    `Expected 0, got ${rSingle.token_savings_estimate.tokens_saved}`);
+});
+test('single step: round_trips_saved = 0', () => {
+  assert(rSingle.token_savings_estimate.round_trips_saved === 0);
+});
+
+// ================================================================
+// v0.1.8: Key-aware sanitization
+// ================================================================
+console.log('\n📦 49. Key-aware sanitization (v0.1.8 P0)');
+const keySanitized = sanitizeObject({
+  env: { PASSWORD: 'hunter2', NODE_ENV: 'production' },
+  config: { api_key: 'sk-abc123', timeout: 30 },
+});
+test('PASSWORD key redacted', () => {
+  assert(keySanitized.env.PASSWORD === '[REDACTED]',
+    `Expected [REDACTED], got ${keySanitized.env.PASSWORD}`);
+});
+test('NODE_ENV preserved', () => {
+  assert(keySanitized.env.NODE_ENV === 'production',
+    `Expected production, got ${keySanitized.env.NODE_ENV}`);
+});
+test('api_key redacted', () => {
+  assert(keySanitized.config.api_key === '[REDACTED]');
+});
+
+// ================================================================
+// v0.1.8: Unresolved reference in command field fails
+// ================================================================
+console.log('\n📦 50. Unresolved in command field (v0.1.8 P1)');
+const rBadCmd = runMacro([
+  { type: 'shell', command: '${{steps.missing.stdout}}', description: 'Bad ref in command' },
+]);
+test('bad ref in command fails', () => {
+  assert(!rBadCmd.steps[0].ok, `Should fail, got ok=${rBadCmd.steps[0]?.ok}`);
+  assert(rBadCmd.steps[0].error && rBadCmd.steps[0].error.includes('Unresolved'),
+    `Error should say Unresolved, got: ${rBadCmd.steps[0]?.error}`);
+});
+
+// ================================================================
+// v0.1.8: Safe config parsing (NaN → fallback)
+// ================================================================
+console.log('\n📦 51. Safe config parsing (v0.1.8 P1)');
+test('invalid env does not crash', () => {
+  // Set bogus env, run a macro — should still work (fallback to defaults)
+  process.env.MACRO_MAX_READ_FILE_BYTES = 'abc';
+  const r = runMacro([{ type: 'shell', command: ECHO }]);
+  delete process.env.MACRO_MAX_READ_FILE_BYTES;
+  assert(r.status === 'completed', `Should complete despite bogus env, got ${r.status}`);
+});
+
+// ================================================================
 console.log(`\n${'='.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
