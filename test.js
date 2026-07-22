@@ -1024,6 +1024,91 @@ test('invalid env does not crash', () => {
 });
 
 // ================================================================
+// v0.1.9: Unresolved ref in old_str/new_str/cwd fields
+// ================================================================
+console.log('\n📦 52. Unresolved in edit fields (v0.1.9 P0)');
+writeFileSync(fa, 'original', 'utf8');
+const rBadEdit = runMacro([
+  { type: 'edit', path: fa, old_str: 'original', new_str: '${{steps.missing.stdout}}', description: 'Bad new_str' },
+]);
+test('unresolved in new_str fails', () => {
+  assert(!rBadEdit.steps[0].ok,
+    `Should fail on unresolved new_str, got ok=${rBadEdit.steps[0]?.ok}`);
+});
+
+// ================================================================
+// v0.1.9: Null step doesn't crash
+// ================================================================
+console.log('\n📦 53. Null step guard (v0.1.9 P0)');
+test('null step rejected', () => {
+  const v = validateMacro([null, { type: 'shell', command: ECHO }]);
+  assert(!v.valid, `Should reject null step, got valid=${v.valid}`);
+});
+
+// ================================================================
+// v0.1.9: Approval propagates unconditionally
+// ================================================================
+console.log('\n📦 54. Approval stops unconditionally (v0.1.9 P0)');
+// Use dynamic dangerous command to trigger runtime audit block
+writeFileSync(fa, 'rm -rf / --no-preserve-root', 'utf8');
+const rApproval = runMacro([
+  { type: 'read', path: fa, assign_to: 'cmd' },
+  { type: 'shell', command: '${{cmd}}', description: 'Blocked shell' },
+  { type: 'shell', command: ECHO, description: 'Should NOT run' },
+], { stop_on_error: false }); // even with stop_on_error:false, approval stops
+test('approval blocks subsequent steps', () => {
+  assert(rApproval.executed_steps <= 2,
+    `Expected <=2 steps, got ${rApproval.executed_steps}`);
+});
+test('blocked step has approval_required', () => {
+  const blocked = rApproval.steps.find(s => s.approval_required);
+  assert(blocked !== undefined, 'Should find approval_required step');
+});
+writeFileSync(fa, 'original A', 'utf8');
+
+// ================================================================
+// v0.1.9: Wider key sanitization
+// ================================================================
+console.log('\n📦 55. Wider key sanitization (v0.1.9 P1)');
+test('OPENAI_API_KEY redacted', () => {
+  const result = sanitizeObject({ OPENAI_API_KEY: 'sk-secret' });
+  assert(result.OPENAI_API_KEY === '[REDACTED]',
+    `Expected [REDACTED], got ${result.OPENAI_API_KEY}`);
+});
+test('DATABASE_PASSWORD redacted', () => {
+  const result = sanitizeObject({ DATABASE_PASSWORD: 'pwd' });
+  assert(result.DATABASE_PASSWORD === '[REDACTED]');
+});
+
+// ================================================================
+// v0.1.9: Validator rejects NaN/Infinity
+// ================================================================
+console.log('\n📦 56. Validator: NaN/Infinity/non-integer (v0.1.9 P1)');
+test('NaN timeout rejected', () => {
+  const v = validateMacro([{ type: 'shell', command: 'x', timeout_ms: NaN }]);
+  assert(!v.valid, `Should reject NaN, got valid=${v.valid}`);
+});
+test('Infinity rejected', () => {
+  const v = validateMacro([{ type: 'shell', command: 'x', timeout_ms: Infinity }]);
+  assert(!v.valid, `Should reject Infinity, got valid=${v.valid}`);
+});
+test('fractional offset rejected', () => {
+  const v = validateMacro([{ type: 'read', path: 'x.js', offset: 1.5 }]);
+  assert(!v.valid, `Should reject 1.5, got valid=${v.valid}`);
+});
+
+// ================================================================
+// v0.1.9: Diagnostic fields in formatted output
+// ================================================================
+console.log('\n📦 57. Diagnostic fields in output (v0.1.9 P1)');
+test('execution_status in formatted', () => {
+  const r = runMacro([{ type: 'shell', command: ECHO }]);
+  const fmt = formatMacroResult(r, 'summary');
+  assert(fmt.execution_status === 'completed',
+    `Expected completed, got ${fmt.execution_status}`);
+});
+
+// ================================================================
 console.log(`\n${'='.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

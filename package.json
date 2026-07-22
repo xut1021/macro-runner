@@ -1,6 +1,6 @@
 {
   "name": "macro-runner",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Macro Runner MCP Server — trusted multi-step macro execution with audit, preview, and rollback for Claude Code",
   "type": "module",
   "main": "index.js",

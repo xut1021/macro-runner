@@ -245,7 +245,7 @@ async function handleRunMacro(args) {
   }
 
   // Validate that all steps have a type
-  const invalidSteps = steps.filter(s => !s.type);
+  const invalidSteps = steps.filter(s => !s || typeof s !== 'object' || !s.type);
   if (invalidSteps.length > 0) {
     return errorResponse(`${invalidSteps.length} step(s) missing required "type" field. Each step must have a type (edit, write, shell, read, conditional, assert).`);
   }
