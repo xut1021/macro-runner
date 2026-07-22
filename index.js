@@ -211,7 +211,7 @@ async function handleRunMacro(args) {
   const mode = args.output_mode || 'summary';
   const options = {
     stop_on_error: args.stop_on_error !== false,
-    timeout_ms: args.timeout_ms || 300000,
+    timeout_ms: args.timeout_ms ?? null,  // v0.1.4: ?? respects explicit 0
     dry_run: args.dry_run === true,
     rollback_on_error: args.rollback_on_error === true,
     schema_version: args.schema_version || '1',
@@ -252,16 +252,16 @@ async function handleRunMacro(args) {
     logBenchmark(result);
     const formatted = formatMacroResult(result, mode);
 
-    return sanitizeResponse({
+    return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(formatted, null, 2),
         },
       ],
-    });
+    };
   } catch (err) {
-    return sanitizeResponse({
+    return {
       content: [
         {
           type: 'text',
@@ -272,7 +272,7 @@ async function handleRunMacro(args) {
         },
       ],
       isError: true,
-    });
+    };
   }
 }
 
@@ -353,17 +353,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
+  let response;
   switch (name) {
     case 'run_macro':
-      return await handleRunMacro(args || {});
+      response = await handleRunMacro(args || {});
+      break;
     case 'list_macros':
-      return await handleListMacros();
+      response = await handleListMacros();
+      break;
     case 'show_macro':
-      return await handleShowMacro(args || {});
+      response = await handleShowMacro(args || {});
+      break;
     case 'macro_status':
-      return await handleMacroStatus();
+      response = await handleMacroStatus();
+      break;
     default:
-      return {
+      response = {
         content: [
           {
             type: 'text',
@@ -376,6 +381,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         isError: true,
       };
   }
+
+  // v0.1.4: unified sanitization — all responses pass through sanitizer
+  return sanitizeResponse(response);
 });
 
 // === Start Server ===

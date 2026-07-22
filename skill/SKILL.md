@@ -7,8 +7,8 @@ description: >
   and token consumption for fix-build-test, install-verify, and refactoring workflows.
 license: MIT
 metadata:
-  version: "1.0"
-  tags: [macro, automation, batch, performance, token-savings]
+  version: "0.1.4"
+  tags: [macro, automation, batch, performance, token-savings, rollback, safety]
 trigger:
   keywords: [fix and verify, batch operations, multi-step, build and test, macro]
 ---
@@ -51,24 +51,39 @@ Steps execute sequentially below the model boundary. You only get results back w
 
 | type | Required params | Optional params | Description |
 |------|----------------|-----------------|-------------|
-| `edit` | `path`, `old_str`, `new_str` | `create_if_missing` | Find-and-replace in a file |
-| `write` | `path`, `content` | — | Create or overwrite a file |
-| `shell` | `command` | `cwd`, `timeout_ms`, `env`, `trim_output_lines` | Run a shell command |
-| `read` | `path` | `offset`, `limit`, `assign_to` | Read file content |
-| `conditional` | `condition`, `then` | `else` | Branch on previous step outcomes |
-| `assert` | `condition`, `message` | — | Fail early if condition fails |
+| `edit` | `path`, `old_str`, `new_str` | `create_if_missing`, `id` | Find-and-replace in a file |
+| `write` | `path`, `content` | `id` | Create or overwrite a file |
+| `shell` | `command` | `cwd`, `timeout_ms`, `env`, `trim_output_lines`, `id` | Run a shell command |
+| `read` | `path` | `offset`, `limit`, `assign_to`, `id` | Read file content |
+| `conditional` | `condition`, `then` | `else`, `id` | Branch on previous step outcomes |
+| `assert` | `condition`, `message` | `id` | Fail early if condition fails |
+
+All step types accept an optional `id` field (must match `/^[A-Za-z_][A-Za-z0-9_]*$/`, must be unique). Use `steps.{id}.property` for stable cross-step references that survive index changes.
 
 ### Variable References
 
 Use `assign_to` on read steps to store content. Reference with `${{variable_name}}` in later steps.
-Pre-defined references: `${{step[0].exit_code}}`, `${{step[1].status}}`, `${{step[2].stdout}}`.
+Variable names must match `/^[A-Za-z_][A-Za-z0-9_]*$/` (letters, digits, underscores; start with letter or underscore).
+Reserved words (`step`, `steps`) cannot be used as variable names.
+
+Pre-defined references:
+- `${{step[0].exit_code}}` or `step[0].exit_code` — top-level step N (not branch steps)
+- `${{steps.build.exit_code}}` or `steps.build.status` — by explicit step ID (stable, recommended)
+- `${{step[1].stdout}}` — captured stdout
+- `step[2].stdout_contains("text")` — substring match in stdout
 
 ### Condition Expressions
 
-Both bare and `${{}}`-wrapped forms work:
+**Important (v0.1.4):** Conditions are now strictly validated. Typo property names (e.g. `exut_code`),
+unresolved step references, and unrecognized expression syntax will fail explicitly — they no longer
+default to truthy.
+
+Supported forms:
 - `step[0].exit_code == 0` or `${{step[0].exit_code}} == 0` — numeric comparison
+- `steps.build.status == "success"` — by explicit step ID (recommended for stability)
 - `step[1].status == "success"` — string comparison
 - `step[2].stdout_contains("PASS")` — content check
+- `true` / `false` — boolean literals
 
 ## Pre-Defined Templates
 

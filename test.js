@@ -372,6 +372,183 @@ test('rollback_status rolled_back', () => assert(rRollFail.rollback_status === '
 test('combined status rolled_back', () => assert(rRollFail.status === 'rolled_back'));
 
 // ================================================================
+// v0.1.4: Exception → rollback guarantee
+// ================================================================
+console.log('\n📦 19. Exception → rollback (v0.1.4 P0-1)');
+// Write to a non-existent directory throws ENOENT — must be caught
+// and the prior edit must still be rolled back
+const excDir = rbDir + '/nonexistent';
+const excFile = excDir + '/file.txt';
+try { rmdirSync(excDir, { recursive: true }); } catch (_) {}
+// Ensure parent dir does NOT exist
+if (existsSync(excDir)) { rmdirSync(excDir, { recursive: true }); }
+
+writeFileSync(fa, 'original A', 'utf8');
+const rExc = runMacro([
+  { type: 'edit', path: fa, old_str: 'original A', new_str: 'modified', description: 'Edit before crash' },
+  { type: 'write', path: excFile, content: 'should fail', description: 'Write to missing dir' },
+  { type: 'shell', command: ECHO, description: 'Never runs' },
+], { rollback_on_error: true });
+test('exception caught (not crash)', () => {
+  assert(rExc.status === 'rolled_back' || rExc.status === 'failed_early',
+    `Expected rolled_back or failed_early, got ${rExc.status}`);
+});
+test('exception step has error', () => {
+  const writeStep = rExc.steps.find(s => s.type === 'write');
+  assert(writeStep && writeStep.ok === false, `Write step should fail, got ok=${writeStep?.ok}`);
+});
+test('edit was rolled back after exception', () => {
+  assert(readFileSync(fa, 'utf8') === 'original A',
+    `File should be "original A" but was: "${readFileSync(fa, 'utf8')}"`);
+});
+
+// ================================================================
+// v0.1.4: Nested step index isolation
+// ================================================================
+console.log('\n📦 20. Nested step index isolation (v0.1.4 P0-2)');
+const rNested = runMacro([
+  { type: 'shell', command: ECHO, description: 'Step 0' },
+  { type: 'conditional', condition: '1 == 1', description: 'Step 1 conditional',
+    then: [
+      { type: 'shell', command: ECHO, description: 'Branch step A' },
+      { type: 'shell', command: ECHO, description: 'Branch step B' },
+    ],
+  },
+  { type: 'shell', command: ECHO, description: 'Step 2 top-level' },
+]);
+test('step[2] is top-level (not overwritten by branch)', () => {
+  assert(rNested.steps[2].type === 'shell',
+    `Expected shell at step[2], got ${rNested.steps[2]?.type}`);
+  assert(rNested.steps[2].description === 'Step 2 top-level',
+    `Expected "Step 2 top-level", got "${rNested.steps[2]?.description}"`);
+});
+test('conditional has branch_results', () => {
+  assert(rNested.steps[1].type === 'conditional');
+  assert(Array.isArray(rNested.steps[1].branch_results));
+  assert(rNested.steps[1].branch_results.length === 2,
+    `Expected 2 branch results, got ${rNested.steps[1].branch_results?.length}`);
+});
+
+// ================================================================
+// v0.1.4: Condition strictness
+// ================================================================
+console.log('\n📦 21. Condition strictness (v0.1.4 P1)');
+// Typo in expression name: "exut_code" instead of "exit_code"
+const rBadCond = runMacro([
+  { type: 'conditional', condition: 'step[0].exut_code == 0', description: 'Typo condition',
+    then: [{ type: 'shell', command: ECHO, description: 'Should NOT run' }],
+  },
+]);
+test('bad condition fails explicitly', () => {
+  assert(!rBadCond.steps[0].ok, 'Conditional with typo should fail');
+  assert(rBadCond.steps[0].error && rBadCond.steps[0].error.includes('Unresolved'),
+    `Error should say "Unresolved", got: ${rBadCond.steps[0]?.error}`);
+});
+
+// ================================================================
+// v0.1.4: Variable name validation
+// ================================================================
+console.log('\n📦 22. Variable name validation (v0.1.4 P1)');
+test('bad assign_to rejected (brackets)', () => {
+  const v = validateMacro([{ type: 'read', path: 'test.js', assign_to: 'foo[0]' }]);
+  assert(!v.valid, `Should reject, errors: ${JSON.stringify(v.errors)}`);
+});
+test('bad assign_to rejected (special chars)', () => {
+  const v = validateMacro([{ type: 'read', path: 'test.js', assign_to: 'a.*' }]);
+  assert(!v.valid, `Should reject regex chars, errors: ${JSON.stringify(v.errors)}`);
+});
+test('good assign_to accepted', () => {
+  const v = validateMacro([{ type: 'read', path: 'test.js', assign_to: 'my_var_1' }]);
+  assert(v.valid, `Should accept valid name, errors: ${JSON.stringify(v.errors)}`);
+});
+test('reserved word assign_to rejected', () => {
+  const v = validateMacro([{ type: 'read', path: 'test.js', assign_to: 'step' }]);
+  assert(!v.valid, `Should reject "step" as reserved, errors: ${JSON.stringify(v.errors)}`);
+});
+
+// ================================================================
+// v0.1.4: Step ID
+// ================================================================
+console.log('\n📦 23. Step ID validation (v0.1.4 P1)');
+test('duplicate step IDs rejected', () => {
+  const v = validateMacro([
+    { type: 'shell', command: 'a', id: 'build' },
+    { type: 'shell', command: 'b', id: 'build' },
+  ]);
+  assert(!v.valid, `Should reject duplicate IDs, got valid=${v.valid}`);
+});
+test('invalid ID chars rejected', () => {
+  const v = validateMacro([{ type: 'shell', command: 'a', id: 'my step' }]);
+  assert(!v.valid, `Should reject space in ID, got valid=${v.valid}`);
+});
+test('valid step IDs accepted', () => {
+  const v = validateMacro([
+    { type: 'shell', command: 'a', id: 'build' },
+    { type: 'shell', command: 'b', id: 'test_step' },
+  ]);
+  assert(v.valid, `Should accept valid IDs, errors: ${JSON.stringify(v.errors)}`);
+});
+
+// ================================================================
+// v0.1.4: steps.ID.property references
+// ================================================================
+console.log('\n📦 24. steps.ID.property references (v0.1.4)');
+const rIdRef = runMacro([
+  { type: 'shell', command: ECHO, id: 'hello', description: 'Echo' },
+  { type: 'conditional',
+    condition: 'steps.hello.status == "success"',
+    description: 'Check by ID',
+    then: [{ type: 'shell', command: ECHO, description: 'Runs on success' }],
+  },
+]);
+test('steps.ID ref works', () => {
+  assert(rIdRef.status === 'completed', `Got ${rIdRef.status}`);
+  assert(rIdRef.steps[1].condition_met === true,
+    `Expected condition_met=true, got ${rIdRef.steps[1]?.condition_met}`);
+});
+
+// ================================================================
+// v0.1.4: stop_on_error in branches
+// ================================================================
+console.log('\n📦 25. stop_on_error in branches (v0.1.4 P1)');
+const rBranchStopFalse = runMacro([
+  { type: 'conditional', condition: '1 == 1', description: 'Branch continue',
+    then: [
+      { type: 'shell', command: FAIL_CMD, description: 'Fails first' },
+      { type: 'shell', command: ECHO, description: 'Runs second' },
+    ],
+  },
+], { stop_on_error: false });
+test('branch continues after failure', () => {
+  assert(rBranchStopFalse.steps[0].branch_results.length === 2,
+    `Expected 2 branch results, got ${rBranchStopFalse.steps[0].branch_results?.length}`);
+});
+test('first branch step failed', () => {
+  assert(rBranchStopFalse.steps[0].branch_results[0].ok === false);
+});
+test('second branch step ran', () => {
+  assert(rBranchStopFalse.steps[0].branch_results[1].ok === true,
+    `Second branch step ok=${rBranchStopFalse.steps[0].branch_results[1]?.ok}`);
+});
+
+// ================================================================
+// v0.1.4: stop_on_error: true in branches (default — stops early)
+// ================================================================
+console.log('\n📦 26. stop_on_error: true in branches (v0.1.4)');
+const rBranchStopTrue = runMacro([
+  { type: 'conditional', condition: '1 == 1', description: 'Branch stop',
+    then: [
+      { type: 'shell', command: FAIL_CMD, description: 'Fails first' },
+      { type: 'shell', command: ECHO, description: 'NEVER runs' },
+    ],
+  },
+], { stop_on_error: true });
+test('branch stops on first failure', () => {
+  assert(rBranchStopTrue.steps[0].branch_results.length === 1,
+    `Expected 1 branch result (stopped early), got ${rBranchStopTrue.steps[0].branch_results?.length}`);
+});
+
+// ================================================================
 console.log(`\n${'='.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

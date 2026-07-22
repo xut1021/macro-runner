@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.1.4 — Trusted Execution Hardening (2026-07-23)
+
+### P0 Bug Fixes
+- **Exception → rollback guarantee**: All synchronous exceptions (ENOENT, EACCES, ENOSPC, etc.)
+  are now caught and converted to structured step failures via `safeExecuteStep`. The main
+  execution loop uses `try/finally` so Phase 3 rollback ALWAYS runs, even if an unexpected
+  exception escapes. This is the core reliability fix — rollback is no longer bypassable.
+- **Nested step index isolation**: Branch sub-step results no longer pollute the top-level
+  `stepResults` array. `step[N]` always refers to top-level step N. Branch results live
+  exclusively in the conditional result's `branch_results` field.
+
+### P1 Fixes
+- **`stop_on_error` recursive**: `stop_on_error` now propagates into conditional branches.
+  With `stop_on_error: true` (default), branch stops on first failure. With `false`,
+  all branch steps execute and failures are recorded.
+- **Strict condition evaluation**: `evaluateCondition` now returns `{valid, value, error}`.
+  Unrecognized expressions (typo property names, missing steps, invalid syntax) fail
+  explicitly instead of silently defaulting to truthy.
+- **Variable name validation**: `assign_to` names must match `/^[A-Za-z_][A-Za-z0-9_]*$/`.
+  Reserved words (`step`, `steps`) are rejected. Invalid names are caught at validation
+  time before execution.
+- **Step ID support**: Steps can now have an optional `id` field for stable cross-step
+  references. IDs must be unique and use the same identifier pattern. Reference by ID
+  via `steps.{id}.property` or `${{steps.{id}.property}}` syntax.
+- **Rollback Buffer-ized**: `RollbackManager` now reads/writes raw `Buffer` instead of
+  UTF-8 strings, preventing corruption of binary files during rollback restore.
+- **Rollback size limits**: `MACRO_MAX_ROLLBACK_FILE_BYTES` (default 10 MB) and
+  `MACRO_MAX_ROLLBACK_TOTAL_BYTES` (default 100 MB) prevent memory exhaustion.
+  Exceeding limits produces a structured error before any file is modified.
+- **Timeout `??` semantics**: All `timeout_ms || default` patterns replaced with `??`
+  so that explicit `0` values are respected instead of being silently replaced.
+- **Unified MCP sanitization**: All four MCP handlers (`run_macro`, `list_macros`,
+  `show_macro`, `macro_status`) now pass through `sanitizeResponse` at the dispatch
+  level, preventing credential leakage from custom templates.
+
+### Engineering
+- 18 new tests (84 total, 0 failures): exception→rollback, nested index isolation,
+  condition strictness, variable name validation, step ID validation,
+  `steps.ID.property` references, branch `stop_on_error` propagation
+
 ## v0.1.2 — Bug Fix & Stabilization (2026-07-22)
 
 ### P0 Bug Fixes
