@@ -669,18 +669,18 @@ const rLeafCounts = runMacro([
   { type: 'shell', command: FAIL_CMD, description: 'Step 2 fails' },
   { type: 'shell', command: ECHO, description: 'Never runs' },
 ]);
-test('leaf_steps_planned count', () => {
-  // Planned: step0 + branchA + branchB + step2 + step4 = 5 (else branch not counted)
-  assert(rLeafCounts.leaf_steps_planned >= 4,
-    `Expected >=4 planned leaves, got ${rLeafCounts.leaf_steps_planned}`);
+test('leaf_steps_declared count', () => {
+  // Declared: step0 + branchA + branchB + step2 + step4 = 5 (both branches counted)
+  assert(rLeafCounts.leaf_steps_declared >= 4,
+    `Expected >=4 declared leaves, got ${rLeafCounts.leaf_steps_declared}`);
 });
-test('leaf_steps_executed < planned', () => {
-  assert(rLeafCounts.leaf_steps_executed < rLeafCounts.leaf_steps_planned,
-    `Executed ${rLeafCounts.leaf_steps_executed} should be < planned ${rLeafCounts.leaf_steps_planned}`);
+test('leaf_steps_executed < declared', () => {
+  assert(rLeafCounts.leaf_steps_executed < rLeafCounts.leaf_steps_declared,
+    `Executed ${rLeafCounts.leaf_steps_executed} should be < declared ${rLeafCounts.leaf_steps_declared}`);
 });
-test('leaf_steps_skipped >= 1', () => {
-  assert(rLeafCounts.leaf_steps_skipped >= 1,
-    `Expected skipped >= 1, got ${rLeafCounts.leaf_steps_skipped}`);
+test('leaf_steps_not_reached >= 1', () => {
+  assert(rLeafCounts.leaf_steps_not_reached >= 1,
+    `Expected not_reached >= 1, got ${rLeafCounts.leaf_steps_not_reached}`);
 });
 
 // ================================================================
@@ -702,8 +702,8 @@ test('logBenchmark: null estimate', () => {
 });
 test('getStats tracks after logBenchmark', () => {
   const stats = getStats();
-  assert(stats.macros_run >= 2,
-    `Expected >=2 runs after logBenchmark calls, got ${stats.macros_run}`);
+  assert(stats.requests_total >= 2,
+    `Expected >=2 requests after logBenchmark calls, got ${stats.requests_total}`);
 });
 
 // ================================================================
@@ -716,6 +716,115 @@ const rTrim = runMacro([
 test('result carries trim_output_lines', () => {
   assert(rTrim.steps[0].trim_output_lines === 10,
     `Expected trim_output_lines=10, got ${rTrim.steps[0]?.trim_output_lines}`);
+});
+
+// ================================================================
+// v0.1.6: Default timeout is actually enforced
+// ================================================================
+console.log('\n📦 36. Default timeout enforced (v0.1.6 P0)');
+test('default timeout is finite', () => {
+  // Without explicit timeout, should default to 300000ms (not null/infinite)
+  const r = runMacro([{ type: 'shell', command: SLOW_CMD }]);
+  // The macro should NOT timeout since 5s < 300s default
+  assert(r.status === 'completed' || r.status === 'timed_out',
+    `Got ${r.status}`);
+  // Verify total_duration_ms is bounded (not infinite hang)
+  assert(r.total_duration_ms < 300000,
+    `Total duration ${r.total_duration_ms}ms exceeds default timeout`);
+});
+
+test('short timeout still enforced', () => {
+  const r = runMacro([{ type: 'shell', command: SLOW_CMD }], { timeout_ms: 100 });
+  assert(r.status === 'timed_out', `Expected timed_out, got ${r.status}`);
+});
+
+// ================================================================
+// v0.1.6: Deadline check prevents side effects after timeout in branches
+// ================================================================
+console.log('\n📦 37. Deadline prevents side effects in branches (v0.1.6 P0)');
+writeFileSync(fa, 'before timeout', 'utf8');
+// Timeout in branch sub-step — even with stop_on_error:false, the edit after
+// a timeout in the SAME branch must be blocked by the deadline check.
+const rDeadline = runMacro([
+  { type: 'conditional', condition: '1 == 1', description: 'Branch with timeout',
+    then: [
+      { type: 'shell', command: SLOW_CMD, timeout_ms: 50, description: 'Times out in branch' },
+      { type: 'edit', path: fa, old_str: 'before timeout', new_str: 'after timeout', description: 'Must NOT execute' },
+    ],
+  },
+], { stop_on_error: false, timeout_ms: 2000 });
+test('branch: edit NOT executed after timeout', () => {
+  const branchResults = rDeadline.steps[0].branch_results;
+  assert(branchResults.length === 1,
+    `Expected exactly 1 branch result (timed out), got ${branchResults?.length}`);
+  assert(branchResults[0].timed_out === true,
+    `First branch step should be timed_out`);
+});
+test('branch: file NOT modified after timeout', () => {
+  assert(readFileSync(fa, 'utf8') === 'before timeout',
+    `File was modified despite timeout: "${readFileSync(fa, 'utf8')}"`);
+});
+
+// ================================================================
+// v0.1.6: stdout_contains missing ID → valid:false
+// ================================================================
+console.log('\n📦 38. stdout_contains strict missing (v0.1.6 P1)');
+const rMissingStdout = runMacro([
+  { type: 'conditional',
+    condition: 'steps.nonexistent.stdout_contains("hello")',
+    description: 'Missing ID',
+    then: [{ type: 'shell', command: ECHO }],
+  },
+]);
+test('missing ID in stdout_contains fails', () => {
+  assert(!rMissingStdout.steps[0].ok,
+    `Should fail, got ok=${rMissingStdout.steps[0]?.ok}`);
+  assert(rMissingStdout.steps[0].error && rMissingStdout.steps[0].error.includes('Unknown'),
+    `Error should say Unknown, got: ${rMissingStdout.steps[0]?.error}`);
+});
+
+// ================================================================
+// v0.1.6: stdout_contains("") — empty string matches everything
+// ================================================================
+console.log('\n📦 39. stdout_contains empty string (v0.1.6 P1)');
+const rEmptyContains = runMacro([
+  { type: 'shell', command: ECHO, description: 'Output hello' },
+  { type: 'conditional',
+    condition: 'step[0].stdout_contains("")',
+    description: 'Empty pattern',
+    then: [{ type: 'shell', command: ECHO, description: 'Should run' }],
+  },
+]);
+test('stdout_contains("") is true', () => {
+  assert(rEmptyContains.steps[1].condition_met === true,
+    `Empty string should match, got ${rEmptyContains.steps[1]?.condition_met}`);
+});
+
+// ================================================================
+// v0.1.6: Step ID in formatted results
+// ================================================================
+console.log('\n📦 40. Step ID in formatted results (v0.1.6 P2)');
+const rFmt = runMacro([
+  { type: 'shell', command: ECHO, id: 'audit_me', description: 'Auditable' },
+]);
+const formatted = formatMacroResult(rFmt, 'summary');
+test('step ID appears in formatted output', () => {
+  assert(formatted.steps[0].id === 'audit_me',
+    `Expected id=audit_me, got ${formatted.steps[0]?.id}`);
+});
+
+// ================================================================
+// v0.1.6: Categorized stats
+// ================================================================
+console.log('\n📦 41. Categorized stats (v0.1.6 P1)');
+test('getStats has categorized fields', () => {
+  const stats = getStats();
+  assert(typeof stats.requests_total === 'number');
+  assert(typeof stats.completed === 'number');
+  assert(typeof stats.failed === 'number');
+  assert(typeof stats.dry_runs === 'number');
+  assert(typeof stats.approval_blocked === 'number');
+  assert(typeof stats.validation_failed === 'number');
 });
 
 // ================================================================

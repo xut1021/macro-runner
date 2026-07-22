@@ -215,7 +215,7 @@ async function handleRunMacro(args) {
   const mode = args.output_mode || 'summary';
   const options = {
     stop_on_error: args.stop_on_error !== false,
-    timeout_ms: args.timeout_ms ?? null,  // v0.1.4: ?? respects explicit 0
+    timeout_ms: args.timeout_ms ?? 300000,  // v0.1.6: restore 5min default
     dry_run: args.dry_run === true,
     rollback_on_error: args.rollback_on_error === true,
     schema_version: args.schema_version || '1',
@@ -339,9 +339,9 @@ async function handleMacroStatus() {
         type: 'text',
         text: JSON.stringify({
           ...stats,
-          message: stats.macros_run === 0
+          message: stats.requests_total === 0
             ? 'No macros have been run yet in this session.'
-            : `${stats.macros_run} macros run, ~${stats.estimated_tokens_saved.toLocaleString()} tokens saved, ${stats.estimated_round_trips_saved} round trips saved.`,
+            : `${stats.requests_total} requests, ${stats.completed} completed, ${stats.failed} failed, ${stats.dry_runs} dry runs, ${stats.approval_blocked} blocked. ~${stats.estimated_tokens_saved.toLocaleString()} tokens saved, ${stats.estimated_round_trips_saved} round trips saved.`,
         }, null, 2),
       },
     ],

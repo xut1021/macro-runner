@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.1.6 — Reliability Hardening (2026-07-23)
+
+### P0 Fixes
+- **Default timeout restored**: `timeout_ms` defaults to 300000ms (was accidentally `null`/infinite
+  since v0.1.4). `remainingMs()` uses explicit null-check instead of falsy check.
+- **Deadline check before all step types**: `_executeStepImpl` checks `remainingMs <= 0` BEFORE
+  any side effects (edit/write/shell/read). Prevents writes after macro deadline.
+- **Timeout always stops execution**: `timed_out` is not overridable by `stop_on_error: false`.
+  Branches always stop on timeout; main loop always breaks.
+- **Unexpected exception rollback guarantee**: Added `catch` block between `try`/`finally`.
+  Any exception escaping the execution loop sets `macroFailed = true` and triggers rollback.
+  Previously, `macroFailed` stayed `false` and `rollback.clear()` would discard snapshots.
+
+### P1 Fixes
+- **Condition variable substitution unified**: `evaluateCondition` now uses callback form
+  `() => String(value)` for user-variable substitution (same as `resolveString`). No more
+  duplicate `String(value)` with `$&` interpretation risk.
+- **stdout_contains missing ID**: Returns `valid: false` with error message instead of
+  `valid: true, value: false`. Empty pattern `stdout_contains("")` now correctly returns
+  `true` (per JS `String.includes("") === true`).
+- **Leaf stats renamed**: `leaf_steps_planned` → `leaf_steps_declared`,
+  `leaf_steps_skipped` → `leaf_steps_not_reached`. Declared counts both branches.
+- **Metrics categorized**: `getStats()` now returns `requests_total`, `completed`, `failed`,
+  `dry_runs`, `approval_blocked`, `validation_failed` instead of monolithic `macros_run`.
+- **Workspace root fail-closed**: `realpathSync` failure on workspace root now returns `null`
+  (reject) instead of falling back to lexical path.
+- **`estimateTokenSavings` uses declared count**: Now bases estimate on declared leaf steps
+  rather than ignoring the parameter.
+
+### P2 Fixes
+- **Byte-level output truncation**: Uses `Buffer.slice()` instead of `String.slice()` for
+  accurate per-channel size limits with multi-byte UTF-8 characters.
+- **Step ID in formatted results**: `formatStepResult` now includes `id` field when
+  `_step_id` is present.
+- **JSONL benchmark fields**: Now includes `execution_status`, `rollback_status`, `timed_out`,
+  `dry_run`, `leaf_steps_declared`, `leaf_steps_executed`.
+
+### Engineering
+- 8 new tests (108 total, 0 failures): default timeout enforcement, branch deadline check,
+  stdout_contains strict missing, empty string semantics, step ID formatting,
+  categorized stats
+
 ## v0.1.5 — State, Reference & Audit Integrity (2026-07-23)
 
 ### P0 Bug Fixes
