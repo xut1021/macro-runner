@@ -1109,6 +1109,75 @@ test('execution_status in formatted', () => {
 });
 
 // ================================================================
+// v0.1.10: Approval propagates to top-level status
+// ================================================================
+console.log('\n📦 58. Approval top-level status (v0.1.10 P0)');
+writeFileSync(fa, 'rm -rf / --no-preserve-root', 'utf8');
+const rApprovalTop = runMacro([
+  { type: 'read', path: fa, assign_to: 'cmd' },
+  { type: 'shell', command: '${{cmd}}' },
+], { rollback_on_error: true });
+test('approval becomes top-level execution_status', () => {
+  assert(rApprovalTop.execution_status === 'approval_required',
+    `Expected approval_required, got ${rApprovalTop.execution_status}`);
+});
+test('approval_details present', () => {
+  assert(rApprovalTop.approval_details && rApprovalTop.approval_details.risk,
+    `Expected approval_details with risk, got ${JSON.stringify(rApprovalTop.approval_details)}`);
+});
+writeFileSync(fa, 'original A', 'utf8');
+
+// ================================================================
+// v0.1.10: Rollback identity check (rollback still works)
+// ================================================================
+console.log('\n📦 59. Rollback identity verified (v0.1.10 P0)');
+writeFileSync(fa, 'before rollback identity test', 'utf8');
+const rIdentity = runMacro([
+  { type: 'edit', path: fa, old_str: 'before rollback identity test', new_str: 'modified', description: 'Edit' },
+  { type: 'shell', command: FAIL_CMD, description: 'Trigger rollback' },
+], { rollback_on_error: true });
+test('rollback with identity succeeds', () => {
+  assert(rIdentity.status === 'rolled_back',
+    `Expected rolled_back, got ${rIdentity.status}`);
+  assert(readFileSync(fa, 'utf8') === 'before rollback identity test',
+    `File not restored: "${readFileSync(fa, 'utf8')}"`);
+});
+
+// ================================================================
+// v0.1.10: Dry-run detects dangerous env and dynamic commands
+// ================================================================
+console.log('\n📦 60. Dry-run env/dynamic audit (v0.1.10 P1)');
+const rDryEnv = runMacro([
+  { type: 'shell', command: 'npm test', env: { NODE_OPTIONS: '--require x.js' }, description: 'Dangerous env' },
+], { dry_run: true });
+test('dry-run detects dangerous env keys', () => {
+  const step = rDryEnv.steps[0];
+  assert(step.dangerous_env_keys && step.dangerous_env_keys.includes('NODE_OPTIONS'),
+    `Should detect NODE_OPTIONS, got: ${JSON.stringify(step)}`);
+});
+
+// Dynamic command → risk unknown
+const rDryDynamic = runMacro([
+  { type: 'shell', command: '${{cmd}}', description: 'Dynamic' },
+], { dry_run: true });
+test('dry-run: dynamic command = risk_unknown', () => {
+  const step = rDryDynamic.steps[0];
+  assert(step.risk === 'unknown' && step.dynamic === true,
+    `Dynamic command should be risk_unknown, got: ${JSON.stringify(step)}`);
+});
+
+// ================================================================
+// v0.1.10: Mode validation
+// ================================================================
+console.log('\n📦 61. Mode validation (v0.1.10 P1)');
+test('invalid mode falls back to approve', () => {
+  process.env.MACRO_DANGEROUS_COMMANDS = 'aprove'; // typo
+  const r = runMacro([{ type: 'shell', command: ECHO }]);
+  delete process.env.MACRO_DANGEROUS_COMMANDS;
+  assert(r.status === 'completed', `Should complete despite bogus mode, got ${r.status}`);
+});
+
+// ================================================================
 console.log(`\n${'='.repeat(40)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
