@@ -97,6 +97,10 @@ const TOOLS = [
                 enum: ['edit', 'write', 'shell', 'read', 'conditional', 'assert'],
                 description: 'Step type.',
               },
+              id: {
+                type: 'string',
+                description: 'Optional stable identifier for cross-step references. Must match /^[A-Za-z_][A-Za-z0-9_]*$/ and be unique. Reference via steps.ID.property or ${{steps.ID.property}}.',
+              },
               description: {
                 type: 'string',
                 description: 'Human-readable description of what this step does (shown in results).',

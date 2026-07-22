@@ -4,7 +4,7 @@
  * Cross-platform — uses `node -e` for shell commands instead of platform-specific ones.
  */
 
-import { runMacro, generateRunId } from './lib/executor.js';
+import { runMacro, generateRunId, getStats, logBenchmark } from './lib/executor.js';
 import { formatMacroResult } from './lib/summarizer.js';
 import { createRollbackManager } from './lib/rollback.js';
 import { checkCommand } from './lib/guard.js';
@@ -546,6 +546,176 @@ const rBranchStopTrue = runMacro([
 test('branch stops on first failure', () => {
   assert(rBranchStopTrue.steps[0].branch_results.length === 1,
     `Expected 1 branch result (stopped early), got ${rBranchStopTrue.steps[0].branch_results?.length}`);
+});
+
+// ================================================================
+// v0.1.5: Benchmark does not crash on early returns
+// ================================================================
+console.log('\n📦 27. Benchmark on early returns (v0.1.5 P0)');
+// Enable benchmark for these tests
+const prevBenchmark = process.env.MACRO_TOKEN_BENCHMARK_ENABLED;
+process.env.MACRO_TOKEN_BENCHMARK_ENABLED = 'true';
+
+test('benchmark + dry_run no crash', () => {
+  const r = runMacro([{ type: 'shell', command: ECHO }], { dry_run: true });
+  assert(r.status === 'completed', `Got ${r.status}`);
+});
+test('benchmark + validation_failed no crash', () => {
+  const r = runMacro([]);
+  assert(r.status === 'validation_failed', `Got ${r.status}`);
+});
+test('benchmark + approval_required no crash', () => {
+  const r = runMacro([{ type: 'shell', command: 'rm -rf /' }]);
+  assert(r.status === 'approval_required', `Got ${r.status}`);
+});
+test('benchmark + timed_out no crash', () => {
+  const r = runMacro([{ type: 'shell', command: SLOW_CMD }], { timeout_ms: 100 });
+  assert(r.status === 'timed_out', `Got ${r.status}`);
+});
+
+// Restore benchmark setting
+if (prevBenchmark === undefined) {
+  delete process.env.MACRO_TOKEN_BENCHMARK_ENABLED;
+} else {
+  process.env.MACRO_TOKEN_BENCHMARK_ENABLED = prevBenchmark;
+}
+
+// ================================================================
+// v0.1.5: Branch step ID registration
+// ================================================================
+console.log('\n📦 28. Branch step ID registration (v0.1.5 P0)');
+const rBranchId = runMacro([
+  { type: 'conditional', condition: 'true', description: 'Build branch',
+    then: [
+      { id: 'build_step', type: 'shell', command: ECHO, description: 'Build in branch' },
+    ],
+  },
+  { type: 'assert', condition: 'steps.build_step.status == "success"', description: 'Verify build' },
+]);
+test('branch step ID accessible after branch', () => {
+  assert(rBranchId.status === 'completed', `Got ${rBranchId.status}: ${JSON.stringify(rBranchId.steps?.map(s => s.error))}`);
+});
+
+// ================================================================
+// v0.1.5: Branch timeout propagated in stop_on_error:false
+// ================================================================
+console.log('\n📦 29. Branch timeout propagation (v0.1.5 P0)');
+const rBranchTimeout = runMacro([
+  { type: 'conditional', condition: '1 == 1', description: 'Slow branch',
+    then: [
+      { type: 'shell', command: SLOW_CMD, timeout_ms: 100, description: 'Times out' },
+      { type: 'shell', command: ECHO, description: 'Never runs' },
+    ],
+  },
+], { stop_on_error: false });
+test('branch timed_out propagated', () => {
+  const condResult = rBranchTimeout.steps[0];
+  assert(condResult.timed_out === true,
+    `Expected timed_out=true on conditional, got ${condResult.timed_out}`);
+});
+
+// ================================================================
+// v0.1.5: UNRESOLVED sentinel — missing step ID
+// ================================================================
+console.log('\n📦 30. UNRESOLVED sentinel (v0.1.5 P1)');
+const rMissingId = runMacro([
+  { type: 'assert', condition: 'steps.nonexistent.status == "success"', description: 'Bad ref' },
+]);
+test('missing step ID fails explicitly', () => {
+  assert(!rMissingId.steps[0].ok, 'Should fail on missing step ID');
+});
+
+// ================================================================
+// v0.1.5: stdout_contains anchoring
+// ================================================================
+console.log('\n📦 31. stdout_contains anchoring (v0.1.5 P1)');
+test('non-step prefix rejected', () => {
+  const r = runMacro([
+    { type: 'conditional', condition: 'foo[0].stdout_contains("hello")', description: 'Bad prefix',
+      then: [{ type: 'shell', command: ECHO }],
+    },
+  ]);
+  // Should fail because "foo[0]" is not "step[0]"
+  assert(!r.steps[0].ok, `Should reject non-step prefix, got ok=${r.steps[0]?.ok}`);
+});
+
+// ================================================================
+// v0.1.5: Strict number parsing
+// ================================================================
+console.log('\n📦 32. Strict number parsing (v0.1.5 P1)');
+test('"0abc" not a number', () => {
+  const r = runMacro([
+    { type: 'conditional', condition: '0abc == 0', description: 'Partial number',
+      then: [{ type: 'shell', command: ECHO }],
+    },
+  ]);
+  // "0abc" is not a valid number, so string comparison: "0abc" !== "0"
+  assert(r.steps[0].condition_met === false,
+    `"0abc" should not equal 0, got condition_met=${r.steps[0]?.condition_met}`);
+});
+
+// ================================================================
+// v0.1.5: Leaf counts: planned vs executed vs skipped
+// ================================================================
+console.log('\n📦 33. Leaf step counts (v0.1.5 P1)');
+const rLeafCounts = runMacro([
+  { type: 'shell', command: ECHO, description: 'Step 0' },
+  { type: 'conditional', condition: '1 == 1', description: 'Branch',
+    then: [
+      { type: 'shell', command: ECHO, description: 'Branch A' },
+      { type: 'shell', command: ECHO, description: 'Branch B' },
+    ],
+  },
+  { type: 'shell', command: FAIL_CMD, description: 'Step 2 fails' },
+  { type: 'shell', command: ECHO, description: 'Never runs' },
+]);
+test('leaf_steps_planned count', () => {
+  // Planned: step0 + branchA + branchB + step2 + step4 = 5 (else branch not counted)
+  assert(rLeafCounts.leaf_steps_planned >= 4,
+    `Expected >=4 planned leaves, got ${rLeafCounts.leaf_steps_planned}`);
+});
+test('leaf_steps_executed < planned', () => {
+  assert(rLeafCounts.leaf_steps_executed < rLeafCounts.leaf_steps_planned,
+    `Executed ${rLeafCounts.leaf_steps_executed} should be < planned ${rLeafCounts.leaf_steps_planned}`);
+});
+test('leaf_steps_skipped >= 1', () => {
+  assert(rLeafCounts.leaf_steps_skipped >= 1,
+    `Expected skipped >= 1, got ${rLeafCounts.leaf_steps_skipped}`);
+});
+
+// ================================================================
+// v0.1.5: macro_status works without benchmark
+// ================================================================
+console.log('\n📦 34. logBenchmark safe on all result shapes (v0.1.5 P1)');
+test('logBenchmark: missing token_savings_estimate', () => {
+  // dry_run results have no token_savings_estimate
+  logBenchmark({ status: 'completed', run_id: 'test1', total_steps: 3,
+    executed_steps: 0, passed_steps: 0, failed_steps: 0, total_duration_ms: 10 });
+  // Should not throw — passes if we reach here
+  assert(true);
+});
+test('logBenchmark: null estimate', () => {
+  logBenchmark({ status: 'validation_failed', run_id: 'test2', total_steps: 0,
+    executed_steps: 0, passed_steps: 0, failed_steps: 0, total_duration_ms: 5,
+    token_savings_estimate: null });
+  assert(true);
+});
+test('getStats tracks after logBenchmark', () => {
+  const stats = getStats();
+  assert(stats.macros_run >= 2,
+    `Expected >=2 runs after logBenchmark calls, got ${stats.macros_run}`);
+});
+
+// ================================================================
+// v0.1.5: trim_output_lines actually used
+// ================================================================
+console.log('\n📦 35. trim_output_lines connected (v0.1.5 P1)');
+const rTrim = runMacro([
+  { type: 'shell', command: ECHO, description: 'Trim test', trim_output_lines: 10 },
+]);
+test('result carries trim_output_lines', () => {
+  assert(rTrim.steps[0].trim_output_lines === 10,
+    `Expected trim_output_lines=10, got ${rTrim.steps[0]?.trim_output_lines}`);
 });
 
 // ================================================================

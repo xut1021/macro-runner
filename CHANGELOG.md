@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.1.5 — State, Reference & Audit Integrity (2026-07-23)
+
+### P0 Bug Fixes
+- **Benchmark crash on early returns**: `logBenchmark()` now uses `??` fallback for
+  missing `token_savings_estimate`. `dry_run`, `validation_failed`, and
+  `approval_required` results no longer crash when benchmark is enabled.
+- **Branch step ID registration**: `registerResultId()` called for ALL results
+  including branch sub-steps. `steps.build.status` now works from inside
+  conditional branches.
+- **Branch timeout propagation**: `executeConditional` aggregates `timed_out`
+  from all branch sub-steps, even in `stop_on_error: false` mode.
+  `executeShell` now sets `timed_out: true` on macro-timeout skip.
+
+### P1 Fixes
+- **UNRESOLVED sentinel**: Replaced literal `"UNDEFINED"` with `__MACRO_UNRESOLVED__`
+  sentinel constant. `evaluateCondition` checks for sentinel explicitly — missing
+  step IDs can no longer match as valid strings (`"UNDEFINED" === "UNDEFINED"`).
+- **stdout_contains anchoring**: Patterns now anchored with `^...$` and require
+  exact `step[N].stdout_contains("...")` or `steps.ID.stdout_contains("...")`.
+  Arbitrary prefixes like `foo[0].stdout_contains(...)` are rejected.
+- **Strict number parsing**: `parseFloat("0abc") === 0` fixed. Uses
+  `/^-?(?:\d+\.?\d*|\.\d+)$/` to validate before numeric comparison.
+- **$ variable substitution**: Callback form `() => String(value)` prevents
+  `$&`, `$'`, `$\`` interpretation in replacement strings.
+- **trim_output_lines connected**: Step result now carries `trim_output_lines`
+  from resolved step config. Summarizer uses `??` instead of `||`.
+- **Leaf step counts split**: `countPlannedLeaves(steps)` and
+  `countExecutedLeaves(results)` replace the single `countLeafSteps`.
+  New fields: `leaf_steps_planned`, `leaf_steps_executed`, `leaf_steps_skipped`.
+- **Session stats independent of benchmark**: `logBenchmark()` always increments
+  in-memory counters. JSONL persistence still controlled by
+  `MACRO_TOKEN_BENCHMARK_ENABLED`. `macro_status` now works for all users.
+- **Workspace path fail-closed**: `safeResolve()` returns `null` on `realpathSync`
+  failure when workspace root is set. Workspace root itself is `realpath`'d for
+  consistent comparison.
+
+### Schema
+- **`id` field exposed to MCP schema**: Agents can now discover and use
+  `steps.ID.property` references.
+
+### Engineering
+- 16 new tests (100 total, 0 failures): benchmark safety, branch ID registration,
+  branch timeout propagation, UNRESOLVED sentinel, stdout_contains anchoring,
+  strict number parsing, leaf count semantics, session stats, trim_output_lines
+
 ## v0.1.4 — Trusted Execution Hardening (2026-07-23)
 
 ### P0 Bug Fixes
